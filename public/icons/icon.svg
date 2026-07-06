@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="128" fill="#e8f7ff"/>
+  <path d="M112 340c64 22 108-3 144-42 42-45 89-62 144-38" fill="none" stroke="#2b7cff" stroke-width="36" stroke-linecap="round"/>
+  <path d="M116 246c48 17 92 6 131-33 43-43 92-61 149-42" fill="none" stroke="#48b8d8" stroke-width="28" stroke-linecap="round"/>
+  <text x="256" y="405" text-anchor="middle" font-family="Arial, sans-serif" font-size="68" font-weight="800" fill="#14365d">대숲</text>
+</svg>

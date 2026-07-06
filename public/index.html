@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>대나무숲 댓글앱</title>
+  <meta name="theme-color" content="#2b7cff" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="hero">
+      <div class="hero-top">
+        <div class="logo-badge">대숲</div>
+        <button id="adminToggle" class="ghost-btn" type="button">관리자</button>
+      </div>
+      <p class="eyebrow">WAVY anonymous board</p>
+      <h1 id="appTitle">대나무숲</h1>
+      <p id="appSubtitle" class="subtitle">익명으로 남긴 속마음 · 건의 · 칭찬</p>
+      <div id="notice" class="notice">서로 불편하지 않게, 선 넘는 내용은 운영진이 정리할 수 있어요.</div>
+    </header>
+
+    <section id="adminPanel" class="panel admin-panel hidden" aria-label="관리자 패널">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">admin mode</p>
+          <h2>관리자 설정</h2>
+        </div>
+        <button id="closeAdmin" class="ghost-btn" type="button">닫기</button>
+      </div>
+
+      <div id="pinWarning" class="warning hidden">현재 기본 PIN 1234로 열려 있어요. Netlify 환경변수 ADMIN_PIN을 꼭 바꿔줘!</div>
+
+      <label class="field">
+        <span>관리자 PIN</span>
+        <input id="adminPin" type="password" placeholder="예: 1234" autocomplete="current-password" />
+      </label>
+
+      <div class="admin-grid">
+        <form id="settingsForm" class="mini-card">
+          <h3>앱 문구 바꾸기</h3>
+          <label class="field"><span>앱 제목</span><input id="settingTitle" type="text" /></label>
+          <label class="field"><span>앱 설명</span><input id="settingSubtitle" type="text" /></label>
+          <label class="field"><span>공지 문구</span><textarea id="settingNotice" rows="3"></textarea></label>
+          <button class="primary-btn" type="submit">문구 저장</button>
+        </form>
+
+        <form id="postForm" class="mini-card">
+          <h3>글 직접 등록</h3>
+          <label class="field"><span>카테고리</span><input id="newCategory" type="text" placeholder="건의 / 칭찬 / 속마음" /></label>
+          <label class="field"><span>닉네임</span><input id="newNickname" type="text" placeholder="익명" /></label>
+          <label class="field"><span>내용</span><textarea id="newContent" rows="5" placeholder="대숲 글 내용을 입력해줘"></textarea></label>
+          <button class="primary-btn" type="submit">글 등록</button>
+        </form>
+
+        <div class="mini-card">
+          <h3>엑셀/CSV로 한 번에 올리기</h3>
+          <p class="help">컬럼명은 <b>content</b>만 필수야. 있으면 category, nickname, status도 같이 읽어.</p>
+          <input id="fileInput" class="file-input" type="file" accept=".xlsx,.xls,.csv" />
+          <div class="row gap">
+            <button id="appendImport" class="primary-btn" type="button">기존 글에 추가</button>
+            <button id="replaceImport" class="danger-light-btn" type="button">전체 교체</button>
+          </div>
+          <p id="importPreview" class="help"></p>
+        </div>
+
+        <div class="mini-card">
+          <h3>관리 도구</h3>
+          <p class="help">데이터 백업은 JSON으로 받아둘 수 있어.</p>
+          <div class="row gap wrap">
+            <button id="exportData" class="secondary-btn" type="button">데이터 백업</button>
+            <button id="resetSample" class="danger-light-btn" type="button">샘플로 초기화</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="toolbar panel">
+      <label class="field search-field">
+        <span>검색</span>
+        <input id="searchInput" type="search" placeholder="내용 검색" />
+      </label>
+      <label class="field category-field">
+        <span>카테고리</span>
+        <select id="categoryFilter">
+          <option value="all">전체</option>
+        </select>
+      </label>
+      <button id="refreshBtn" class="secondary-btn" type="button">새로고침</button>
+    </section>
+
+    <main>
+      <div id="status" class="status">불러오는 중...</div>
+      <div id="postList" class="post-list"></div>
+    </main>
+  </div>
+
+  <template id="postTemplate">
+    <article class="post-card">
+      <div class="post-meta">
+        <span class="chip category"></span>
+        <span class="date"></span>
+      </div>
+      <p class="post-content"></p>
+      <div class="comments"></div>
+      <form class="comment-form">
+        <input name="nickname" type="text" placeholder="닉네임, 기본 익명" maxlength="20" />
+        <input name="content" type="text" placeholder="댓글을 입력해줘" maxlength="600" required />
+        <button type="submit">댓글</button>
+      </form>
+      <button class="delete-post danger-text hidden" type="button">관리자: 글 숨김</button>
+    </article>
+  </template>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

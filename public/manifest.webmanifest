@@ -1,0 +1,11 @@
+{
+  "name": "대나무숲 댓글앱",
+  "short_name": "대숲",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6fbff",
+  "theme_color": "#2b7cff",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
