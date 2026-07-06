@@ -358,15 +358,34 @@ async function syncGoogleSheet(data, { force = false } = {}) {
   }
 }
 
-function publicData(data) {
+function timeValue(value) {
+  const time = new Date(value || 0).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function publicData(data, { admin = false } = {}) {
   const posts = data.posts
     .filter(post => post.status !== '숨김')
-    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt))
+    .map(post => ({
+      ...post,
+      // 일반 이용자에게는 작성자 닉네임을 절대 내려주지 않음.
+      // 관리자 PIN으로 확인한 화면에서만 실제 닉네임 표시.
+      nickname: admin ? (post.nickname || '익명') : '익명',
+      writerAdminOnly: Boolean(admin && post.nickname && post.nickname !== '익명')
+    }));
   const visiblePostIds = new Set(posts.map(post => post.id));
   const comments = data.comments
     .filter(comment => comment.status !== '숨김' && visiblePostIds.has(comment.postId))
-    .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-  return { settings: data.settings, posts, comments, sync: data.sync, adminDefaultPin: !process.env.ADMIN_PIN };
+    .sort((a, b) => timeValue(a.createdAt) - timeValue(b.createdAt));
+  return {
+    settings: data.settings,
+    posts,
+    comments,
+    sync: data.sync,
+    adminDefaultPin: !process.env.ADMIN_PIN,
+    adminView: admin
+  };
 }
 
 export default async (req) => {
@@ -404,14 +423,19 @@ export default async (req) => {
       return json({ ok: true, comment, feed: publicData(data) });
     }
 
-    const adminActions = ['post', 'import-posts', 'delete-post', 'delete-comment', 'settings', 'reset-sample', 'sync-now'];
+    const adminActions = ['admin-feed', 'post', 'import-posts', 'delete-post', 'delete-comment', 'settings', 'reset-sample', 'sync-now'];
     if (adminActions.includes(action) && !isAdmin(req, body, url)) {
       return json({ error: '관리자 PIN이 맞지 않아요.' }, 401);
     }
 
+    if (req.method === 'POST' && action === 'admin-feed') {
+      data = await syncGoogleSheet(data);
+      return json({ ok: true, feed: publicData(data, { admin: true }) });
+    }
+
     if (req.method === 'POST' && action === 'sync-now') {
       data = await syncGoogleSheet(data, { force: true });
-      return json({ ok: true, feed: publicData(data) });
+      return json({ ok: true, feed: publicData(data, { admin: true }) });
     }
 
     if (req.method === 'POST' && action === 'post') {
@@ -419,7 +443,7 @@ export default async (req) => {
       if (!post.content) return json({ error: '게시글 내용을 입력해 주세요.' }, 400);
       data.posts.unshift(post);
       await saveData(data);
-      return json({ ok: true, post, feed: publicData(data) });
+      return json({ ok: true, post, feed: publicData(data, { admin: true }) });
     }
 
     if (req.method === 'POST' && action === 'import-posts') {
@@ -429,7 +453,7 @@ export default async (req) => {
       data.posts = mode === 'replace' ? posts : [...posts, ...data.posts];
       if (mode === 'replace') data.comments = [];
       await saveData(data);
-      return json({ ok: true, count: posts.length, feed: publicData(data) });
+      return json({ ok: true, count: posts.length, feed: publicData(data, { admin: true }) });
     }
 
     if (req.method === 'POST' && action === 'delete-post') {
@@ -438,7 +462,7 @@ export default async (req) => {
       if (!post) return json({ error: '글을 찾을 수 없어요.' }, 404);
       post.status = '숨김';
       await saveData(data);
-      return json({ ok: true, feed: publicData(data) });
+      return json({ ok: true, feed: publicData(data, { admin: true }) });
     }
 
     if (req.method === 'POST' && action === 'delete-comment') {
@@ -447,7 +471,7 @@ export default async (req) => {
       if (!comment) return json({ error: '댓글을 찾을 수 없어요.' }, 404);
       comment.status = '숨김';
       await saveData(data);
-      return json({ ok: true, feed: publicData(data) });
+      return json({ ok: true, feed: publicData(data, { admin: true }) });
     }
 
     if (req.method === 'POST' && action === 'settings') {
@@ -458,13 +482,13 @@ export default async (req) => {
         notice: cleanText(body.notice || data.settings.notice, 200)
       };
       await saveData(data);
-      return json({ ok: true, settings: data.settings, feed: publicData(data) });
+      return json({ ok: true, settings: data.settings, feed: publicData(data, { admin: true }) });
     }
 
     if (req.method === 'POST' && action === 'reset-sample') {
       const seed = defaultData();
       await saveData(seed);
-      return json({ ok: true, feed: publicData(seed) });
+      return json({ ok: true, feed: publicData(seed, { admin: true }) });
     }
 
     return json({ error: '요청을 처리할 수 없어요.' }, 404);

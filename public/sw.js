@@ -1,4 +1,4 @@
-const CACHE_NAME = 'daesup-app-v1';
+const CACHE_NAME = 'daesup-app-v3-admin-author-comment-order';
 const ASSETS = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest', '/icons/icon.svg'];
 
 self.addEventListener('install', event => {

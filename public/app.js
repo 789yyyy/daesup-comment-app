@@ -20,6 +20,7 @@ const state = {
   settings: {},
   sync: {},
   adminOpen: false,
+  adminVerified: false,
   parsedImportPosts: []
 };
 
@@ -75,8 +76,15 @@ function updateCategoryFilter() {
   $('#categoryFilter').value = categories.includes(current) ? current : 'all';
 }
 
+function timeValue(value) {
+  const time = new Date(value || 0).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
 function commentsFor(postId) {
-  return state.comments.filter(comment => comment.postId === postId);
+  return state.comments
+    .filter(comment => comment.postId === postId)
+    .sort((a, b) => timeValue(a.createdAt) - timeValue(b.createdAt));
 }
 
 function renderComment(comment, commentsBox) {
@@ -129,12 +137,20 @@ function renderPosts() {
     const node = template.content.cloneNode(true);
     const card = $('.post-card', node);
     $('.category', node).textContent = post.category || '속마음';
-    $('.post-nickname', node).textContent = post.nickname || '익명';
+    const nicknameEl = $('.post-nickname', node);
+    nicknameEl.textContent = post.nickname || '익명';
+    nicknameEl.classList.toggle('admin-visible', Boolean(post.writerAdminOnly && state.adminOpen));
     $('.date', node).textContent = formatDate(post.createdAt);
     $('.post-content', node).textContent = post.content || '';
 
     const commentsBox = $('.comments', node);
     const postComments = commentsFor(post.id);
+    if (postComments.length > 1) {
+      const orderNote = document.createElement('p');
+      orderNote.className = 'comment-order-note';
+      orderNote.textContent = '댓글은 오래된 순서대로 보여줘.';
+      commentsBox.append(orderNote);
+    }
     if (postComments.length) {
       postComments.forEach(comment => renderComment(comment, commentsBox));
     } else {
@@ -193,6 +209,7 @@ function updateSyncStatus() {
 }
 
 function updateStateFromFeed(feed) {
+  if (Object.prototype.hasOwnProperty.call(feed, 'adminView')) state.adminVerified = Boolean(feed.adminView);
   state.posts = feed.posts || [];
   state.comments = feed.comments || [];
   state.settings = feed.settings || {};
@@ -206,11 +223,30 @@ function updateStateFromFeed(feed) {
 
 async function loadFeed() {
   showStatus('불러오는 중...');
+  if (state.adminOpen && adminPin()) {
+    const ok = await loadAdminFeed({ silent: true });
+    if (ok) return;
+  }
   try {
     const feed = await api('feed');
+    state.adminVerified = false;
     updateStateFromFeed(feed);
   } catch (error) {
     showStatus(`서버 연결이 안 됐어: ${error.message}`, true);
+  }
+}
+
+async function loadAdminFeed({ silent = false } = {}) {
+  savePin();
+  try {
+    const result = await adminRequest('admin-feed', {});
+    updateStateFromFeed(result.feed);
+    if (!silent) alert('관리자 정보로 새로고침했어. 이제 실제 작성자 닉네임은 관리자에게만 보여.');
+    return true;
+  } catch (error) {
+    state.adminVerified = false;
+    if (!silent) alert(error.message);
+    return false;
   }
 }
 
@@ -340,20 +376,30 @@ function bindEvents() {
     state.adminOpen = true;
     $('#adminPanel').classList.remove('hidden');
     $('#adminPin').value = localStorage.getItem('daesupAdminPin') || '';
+    if (adminPin()) loadAdminFeed({ silent: true });
     renderPosts();
     $('#adminPanel').scrollIntoView({ block: 'start' });
   });
 
   $('#closeAdmin').addEventListener('click', () => {
     state.adminOpen = false;
+    state.adminVerified = false;
     $('#adminPanel').classList.add('hidden');
-    renderPosts();
+    loadFeed();
   });
 
   $('#refreshBtn').addEventListener('click', loadFeed);
   $('#searchInput').addEventListener('input', renderPosts);
   $('#categoryFilter').addEventListener('change', renderPosts);
-  $('#adminPin').addEventListener('change', savePin);
+  $('#adminPin').addEventListener('change', () => {
+    savePin();
+    if (adminPin()) loadAdminFeed({ silent: true });
+  });
+
+  const adminRefreshButton = $('#adminRefresh');
+  if (adminRefreshButton) {
+    adminRefreshButton.addEventListener('click', () => loadAdminFeed());
+  }
 
   $('#settingsForm').addEventListener('submit', async event => {
     event.preventDefault();

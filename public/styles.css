@@ -317,3 +317,20 @@ h1 {
   background: #fff0f0;
   color: var(--danger);
 }
+
+.admin-pin-actions {
+  margin-top: 10px;
+  justify-content: flex-start;
+}
+
+.post-nickname.admin-visible {
+  background: #fff7d6;
+  color: #8a5b00;
+}
+
+.comment-order-note {
+  margin: 4px 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
