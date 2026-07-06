@@ -291,7 +291,10 @@ function parseMaybeDate(value) {
     let hour = Number(h);
     if (ampm === '오후' && hour < 12) hour += 12;
     if (ampm === '오전' && hour === 12) hour = 0;
-    const dt = new Date(Number(y), Number(mo) - 1, Number(d), hour, Number(mi), s ? Number(s) : 0);
+    // 구글폼 시각은 한국시간(KST, UTC+9). 서버 타임존(Netlify=UTC)에 흔들리지 않도록
+    // UTC 기준으로 만든 뒤 9시간을 빼서 올바른 UTC 순간으로 변환한다.
+    const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+    const dt = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d), hour, Number(mi), s ? Number(s) : 0) - KST_OFFSET_MS);
     if (!Number.isNaN(dt.getTime())) return dt.toISOString();
   }
 
