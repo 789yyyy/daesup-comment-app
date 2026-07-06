@@ -56,8 +56,15 @@
         </form>
 
         <div class="mini-card">
+          <h3>구글시트 자동연동</h3>
+          <p class="help">구글시트에 새 줄을 입력하면 앱 새로고침 때 자동으로 반영돼. 앱은 1분마다 자동 새로고침도 해.</p>
+          <p id="sheetSyncStatus" class="sync-status help">구글시트 연동 상태 확인 중...</p>
+          <button id="syncNow" class="secondary-btn" type="button">지금 구글시트 반영</button>
+        </div>
+
+        <div class="mini-card">
           <h3>엑셀/CSV로 한 번에 올리기</h3>
-          <p class="help">컬럼명은 <b>content</b>만 필수야. 있으면 category, nickname, status도 같이 읽어.</p>
+          <p class="help">자동연동을 쓰면 보통 이 기능은 안 써도 돼. 백업 파일을 직접 넣을 때만 사용해.</p>
           <input id="fileInput" class="file-input" type="file" accept=".xlsx,.xls,.csv" />
           <div class="row gap">
             <button id="appendImport" class="primary-btn" type="button">기존 글에 추가</button>
@@ -100,7 +107,10 @@
   <template id="postTemplate">
     <article class="post-card">
       <div class="post-meta">
-        <span class="chip category"></span>
+        <div class="post-left-meta">
+          <span class="chip category"></span>
+          <span class="post-nickname"></span>
+        </div>
         <span class="date"></span>
       </div>
       <p class="post-content"></p>

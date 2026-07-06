@@ -18,6 +18,7 @@ const state = {
   posts: [],
   comments: [],
   settings: {},
+  sync: {},
   adminOpen: false,
   parsedImportPosts: []
 };
@@ -128,6 +129,7 @@ function renderPosts() {
     const node = template.content.cloneNode(true);
     const card = $('.post-card', node);
     $('.category', node).textContent = post.category || '속마음';
+    $('.post-nickname', node).textContent = post.nickname || '익명';
     $('.date', node).textContent = formatDate(post.createdAt);
     $('.post-content', node).textContent = post.content || '';
 
@@ -174,10 +176,28 @@ function renderPosts() {
   }
 }
 
+
+function updateSyncStatus() {
+  const el = $('#sheetSyncStatus');
+  if (!el) return;
+  const sync = state.sync || {};
+  if (sync.lastError) {
+    el.textContent = `구글시트 연동 오류: ${sync.lastError}`;
+    el.classList.add('error');
+    return;
+  }
+  const count = Number(sync.lastCount || 0);
+  const time = sync.lastSuccess ? formatDate(sync.lastSuccess) : '아직 없음';
+  el.textContent = `구글시트 자동연동 ON · ${count}개 글 · 마지막 반영 ${time}`;
+  el.classList.remove('error');
+}
+
 function updateStateFromFeed(feed) {
   state.posts = feed.posts || [];
   state.comments = feed.comments || [];
   state.settings = feed.settings || {};
+  state.sync = feed.sync || {};
+  updateSyncStatus();
   $('#pinWarning').classList.toggle('hidden', !feed.adminDefaultPin);
   applySettings();
   updateCategoryFilter();
@@ -223,21 +243,54 @@ async function deleteComment(commentId) {
   }
 }
 
+function compactKey(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\n\r\t_\-()[\]{}.,:;!?"'“”‘’·/\\|]+/g, '');
+}
+
+const importAliases = {
+  content: [
+    'content', '내용', '글내용', '제보내용', '대숲내용', '대나무숲', '대나무숲내용', '익명제보', '제보', '본문', '메시지', 'message', 'answer', '답변',
+    '대나무숲에남기고싶은말을적어주세요', '대나무숲에남기고싶은말', '남기고싶은말', '하고싶은말', '익명으로남기고싶은말', '속마음', '건의칭찬내용'
+  ],
+  category: ['category', '카테고리', '분류', '종류', '유형', '구분', '말머리', '게시판'],
+  nickname: ['nickname', '닉네임', '별명', '작성자', '이름', '작성자명', '본인닉네임', '본인이쓴닉네임', '닉네임을입력해주세요', '닉네임기본익명', '표시이름'],
+  status: ['status', '상태', '공개여부', '게시여부', '승인', '공개', '관리자확인'],
+  createdAt: ['createdat', 'created_at', '작성일', '작성일시', '제출일', '제출시간', '타임스탬프', 'timestamp', '날짜', '일시', '시간']
+};
+
+function getRowValue(row, field) {
+  const entries = Object.entries(row);
+  const aliases = (importAliases[field] || []).map(compactKey);
+  for (const [key, value] of entries) {
+    if (aliases.includes(compactKey(key))) return value;
+  }
+  if (field === 'content') {
+    const metaKeys = new Set([
+      ...importAliases.category.map(compactKey),
+      ...importAliases.nickname.map(compactKey),
+      ...importAliases.status.map(compactKey),
+      ...importAliases.createdAt.map(compactKey)
+    ]);
+    const candidates = entries
+      .filter(([key, value]) => !metaKeys.has(compactKey(key)) && String(value ?? '').trim())
+      .sort((a, b) => String(b[1]).length - String(a[1]).length);
+    return candidates[0]?.[1] || '';
+  }
+  return '';
+}
+
 function parseRows(rows) {
-  return rows.map((row, index) => {
-    const normalized = {};
-    for (const [key, value] of Object.entries(row)) {
-      normalized[String(key).trim().toLowerCase()] = value;
-    }
-    return {
-      id: normalized.id || '',
-      content: normalized.content || normalized.내용 || normalized['글내용'] || normalized['제보내용'] || '',
-      category: normalized.category || normalized.카테고리 || normalized.분류 || '속마음',
-      nickname: normalized.nickname || normalized.닉네임 || normalized.작성자 || '익명',
-      status: normalized.status || normalized.상태 || '게시',
-      createdAt: normalized.createdat || normalized.created_at || normalized.작성일 || ''
-    };
-  }).filter(post => String(post.content || '').trim());
+  return rows.map((row, index) => ({
+    id: String(getRowValue(row, 'id') || '').trim(),
+    content: String(getRowValue(row, 'content') || '').trim(),
+    category: String(getRowValue(row, 'category') || '속마음').trim(),
+    nickname: String(getRowValue(row, 'nickname') || '익명').trim(),
+    status: String(getRowValue(row, 'status') || '게시').trim(),
+    createdAt: String(getRowValue(row, 'createdAt') || '').trim()
+  })).filter(post => String(post.content || '').trim());
 }
 
 async function readImportFile(file) {
@@ -350,6 +403,22 @@ function bindEvents() {
   $('#appendImport').addEventListener('click', () => importPosts('append'));
   $('#replaceImport').addEventListener('click', () => importPosts('replace'));
 
+  const syncNowButton = $('#syncNow');
+  if (syncNowButton) {
+    syncNowButton.addEventListener('click', async () => {
+      try {
+        syncNowButton.disabled = true;
+        const result = await adminRequest('sync-now', {});
+        updateStateFromFeed(result.feed);
+        alert('구글시트 새 내용 반영 완료!');
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        syncNowButton.disabled = false;
+      }
+    });
+  }
+
   $('#exportData').addEventListener('click', async () => {
     savePin();
     try {
@@ -382,3 +451,4 @@ if ('serviceWorker' in navigator) {
 
 bindEvents();
 loadFeed();
+setInterval(loadFeed, 60000);

@@ -282,3 +282,38 @@ h1 {
   .post-card { padding: 18px; }
   .post-content { font-size: 16px; }
 }
+
+.post-left-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.post-nickname {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: #f5f9ff;
+  color: #45657f;
+  font-weight: 900;
+}
+
+.post-nickname::before {
+  content: "작성자 ";
+  color: var(--muted);
+  font-weight: 700;
+  margin-right: 2px;
+}
+
+.sync-status {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: #f4f9fd;
+}
+
+.sync-status.error {
+  background: #fff0f0;
+  color: var(--danger);
+}
