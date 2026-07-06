@@ -94,7 +94,7 @@ function timeValue(value) {
 function commentsFor(postId) {
   return state.comments
     .filter(comment => comment.postId === postId)
-    .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
+    .sort((a, b) => timeValue(a.createdAt) - timeValue(b.createdAt));
 }
 
 function captureVisibleCommentDrafts() {
