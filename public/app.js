@@ -21,7 +21,8 @@ const state = {
   sync: {},
   adminOpen: false,
   adminVerified: false,
-  parsedImportPosts: []
+  parsedImportPosts: [],
+  commentDrafts: {}
 };
 
 function formatDate(value) {
@@ -101,6 +102,37 @@ function commentsFor(postId) {
     .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
 }
 
+function captureVisibleCommentDrafts() {
+  $$('.comment-form').forEach(form => {
+    const card = form.closest('.post-card');
+    const postId = card?.dataset.postId;
+    if (!postId) return;
+    const nickname = String(form.elements.nickname?.value || '').trim();
+    const content = String(form.elements.content?.value || '');
+    if (nickname || content.trim()) {
+      state.commentDrafts[postId] = { nickname, content };
+    } else {
+      delete state.commentDrafts[postId];
+    }
+  });
+}
+
+function isTypingOrHasDraft() {
+  captureVisibleCommentDrafts();
+  const active = document.activeElement;
+  const activeTag = active?.tagName || '';
+  const editingNow = active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag);
+  const hasDraft = Object.values(state.commentDrafts).some(draft =>
+    String(draft?.content || '').trim() || String(draft?.nickname || '').trim()
+  );
+  return Boolean(editingNow || hasDraft);
+}
+
+async function autoRefreshFeed() {
+  if (isTypingOrHasDraft()) return;
+  await loadFeed({ silent: true });
+}
+
 function renderComment(comment, commentsBox) {
   const wrapper = document.createElement('div');
   wrapper.className = 'comment';
@@ -130,6 +162,7 @@ function renderComment(comment, commentsBox) {
 }
 
 function renderPosts() {
+  captureVisibleCommentDrafts();
   const list = $('#postList');
   const template = $('#postTemplate');
   const keyword = $('#searchInput').value.trim().toLowerCase();
@@ -151,6 +184,7 @@ function renderPosts() {
   for (const post of filtered) {
     const node = template.content.cloneNode(true);
     const card = $('.post-card', node);
+    card.dataset.postId = post.id;
     $('.category', node).textContent = post.category || '속마음';
     const nicknameEl = $('.post-nickname', node);
     nicknameEl.textContent = post.nickname || '익명';
@@ -175,6 +209,20 @@ function renderPosts() {
     }
 
     const form = $('.comment-form', node);
+    const draft = state.commentDrafts[post.id];
+    if (draft) {
+      form.elements.nickname.value = draft.nickname || '';
+      form.elements.content.value = draft.content || '';
+    }
+    form.addEventListener('input', () => {
+      const nickname = String(form.elements.nickname?.value || '').trim();
+      const content = String(form.elements.content?.value || '');
+      if (nickname || content.trim()) {
+        state.commentDrafts[post.id] = { nickname, content };
+      } else {
+        delete state.commentDrafts[post.id];
+      }
+    });
     form.addEventListener('submit', async event => {
       event.preventDefault();
       const formData = new FormData(form);
@@ -187,8 +235,8 @@ function renderPosts() {
           method: 'POST',
           body: JSON.stringify({ postId: post.id, nickname, content })
         });
+        delete state.commentDrafts[post.id];
         updateStateFromFeed(result.feed);
-        form.reset();
       } catch (error) {
         alert(error.message);
       } finally {
@@ -236,8 +284,8 @@ function updateStateFromFeed(feed) {
   renderPosts();
 }
 
-async function loadFeed() {
-  showStatus('불러오는 중...');
+async function loadFeed({ silent = false } = {}) {
+  if (!silent) showStatus('불러오는 중...');
   if (state.adminOpen && adminPin()) {
     const ok = await loadAdminFeed({ silent: true });
     if (ok) return;
@@ -518,4 +566,4 @@ if ('serviceWorker' in navigator) {
 bindEvents();
 updateAdminGate();
 loadFeed();
-setInterval(loadFeed, 60000);
+setInterval(autoRefreshFeed, 60000);
