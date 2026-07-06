@@ -84,7 +84,7 @@ function timeValue(value) {
 function commentsFor(postId) {
   return state.comments
     .filter(comment => comment.postId === postId)
-    .sort((a, b) => timeValue(a.createdAt) - timeValue(b.createdAt));
+    .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
 }
 
 function renderComment(comment, commentsBox) {
@@ -148,7 +148,7 @@ function renderPosts() {
     if (postComments.length > 1) {
       const orderNote = document.createElement('p');
       orderNote.className = 'comment-order-note';
-      orderNote.textContent = '댓글은 오래된 순서대로 보여줘.';
+      orderNote.textContent = '댓글은 최신순으로 보여줘.';
       commentsBox.append(orderNote);
     }
     if (postComments.length) {

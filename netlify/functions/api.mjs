@@ -377,7 +377,7 @@ function publicData(data, { admin = false } = {}) {
   const visiblePostIds = new Set(posts.map(post => post.id));
   const comments = data.comments
     .filter(comment => comment.status !== '숨김' && visiblePostIds.has(comment.postId))
-    .sort((a, b) => timeValue(a.createdAt) - timeValue(b.createdAt));
+    .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
   return {
     settings: data.settings,
     posts,
