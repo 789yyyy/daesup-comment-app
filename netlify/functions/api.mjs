@@ -72,6 +72,8 @@ function defaultData() {
       }
     ],
     comments: [],
+    // 투표는 글/댓글 id 기준 별도 보관 (구글시트 sync로 글 객체가 새로 생겨도 유지)
+    votes: { post: {}, comment: {} },
     sync: {
       enabled: true,
       source: 'google-sheet',
@@ -98,6 +100,10 @@ async function getData() {
     settings: { ...seed.settings, ...(data.settings || {}) },
     posts: Array.isArray(data.posts) ? data.posts : [],
     comments: Array.isArray(data.comments) ? data.comments : [],
+    votes: {
+      post: (data.votes && data.votes.post) || {},
+      comment: (data.votes && data.votes.comment) || {}
+    },
     sync: { ...seed.sync, ...(data.sync || {}) }
   };
 }
@@ -453,11 +459,24 @@ function timeValue(value) {
   return Number.isNaN(time) ? 0 : time;
 }
 
-function publicData(data, { admin = false } = {}) {
+function tallyVotes(votesMap, id, viewerHash) {
+  const votes = (votesMap && votesMap[id]) || {};
+  const values = Object.values(votes);
+  return {
+    up: values.filter(v => v === 'up').length,
+    down: values.filter(v => v === 'down').length,
+    myVote: viewerHash ? (votes[viewerHash] || null) : null
+  };
+}
+
+function publicData(data, { admin = false, viewerHash = '' } = {}) {
+  const postVotes = (data.votes && data.votes.post) || {};
+  const commentVotes = (data.votes && data.votes.comment) || {};
   const posts = data.posts
     .filter(post => post.status !== '숨김')
     .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt))
     .map(post => {
+      const v = tallyVotes(postVotes, post.id, viewerHash);
       const publicPost = {
         id: post.id,
         createdAt: post.createdAt,
@@ -465,7 +484,10 @@ function publicData(data, { admin = false } = {}) {
         nickname: post.nickname || '익명',
         content: post.content || '',
         status: post.status || '게시',
-        source: post.source || 'manual'
+        source: post.source || 'manual',
+        up: v.up,
+        down: v.down,
+        myVote: v.myVote
       };
       // 관리자 화면에서만 IP 해시의 앞 8자리를 지문으로 노출 (원본 IP·전체 해시는 비공개)
       if (admin && post.ipHash) publicPost.ipHash = String(post.ipHash).slice(0, 8);
@@ -476,13 +498,17 @@ function publicData(data, { admin = false } = {}) {
     .filter(comment => comment.status !== '숨김' && visiblePostIds.has(comment.postId))
     .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt))
     .map(comment => {
+      const v = tallyVotes(commentVotes, comment.id, viewerHash);
       const publicComment = {
         id: comment.id,
         postId: comment.postId,
         createdAt: comment.createdAt,
         nickname: comment.nickname || '익명',
         content: comment.content || '',
-        status: comment.status || '게시'
+        status: comment.status || '게시',
+        up: v.up,
+        down: v.down,
+        myVote: v.myVote
       };
       // 관리자 화면에서만 IP 해시의 앞 8자리를 지문으로 노출 (원본 IP·전체 해시는 비공개)
       if (admin && comment.ipHash) publicComment.ipHash = String(comment.ipHash).slice(0, 8);
@@ -535,11 +561,13 @@ export default async (req, context) => {
   try {
     const action = getAction(url);
     let data = await getData();
+    const viewerIp = clientIp(req, context);
+    const viewerHash = viewerIp ? hash(viewerIp) : '';
 
     if (req.method === 'GET') {
       if (action === 'feed') {
         data = await syncGoogleSheet(data);
-        return json(publicData(data));
+        return json(publicData(data, { viewerHash }));
       }
       return json({ error: '없는 API예요.' }, 404);
     }
@@ -555,7 +583,7 @@ export default async (req, context) => {
       comment.ipHash = ip ? hash(ip) : '';
       data.comments.push(comment);
       await saveData(data);
-      return json({ ok: true, feed: publicData(data) });
+      return json({ ok: true, feed: publicData(data, { viewerHash }) });
     }
 
     if (req.method === 'POST' && action === 'create-post') {
@@ -571,7 +599,25 @@ export default async (req, context) => {
       post.ipHash = ip ? hash(ip) : '';
       data.posts.unshift(post);
       await saveData(data);
-      return json({ ok: true, feed: publicData(data) });
+      return json({ ok: true, feed: publicData(data, { viewerHash }) });
+    }
+
+    if (req.method === 'POST' && (action === 'vote-post' || action === 'vote-comment')) {
+      const isPost = action === 'vote-post';
+      const id = cleanText(isPost ? body.postId : body.commentId, 100);
+      const dir = body.dir === 'down' ? 'down' : (body.dir === 'up' ? 'up' : '');
+      if (!id || !dir) return json({ error: '잘못된 투표 요청이에요.' }, 400);
+      if (!viewerHash) return json({ error: '지금은 투표할 수 없어요.' }, 400);
+      const target = isPost
+        ? data.posts.find(item => item.id === id && item.status !== '숨김')
+        : data.comments.find(item => item.id === id && item.status !== '숨김');
+      if (!target) return json({ error: '대상을 찾을 수 없어요.' }, 404);
+      const bucket = isPost ? data.votes.post : data.votes.comment;
+      const map = bucket[id] || (bucket[id] = {});
+      if (map[viewerHash] === dir) delete map[viewerHash];   // 같은 버튼 다시 → 취소
+      else map[viewerHash] = dir;                            // 새로 투표 / 반대로 전환
+      await saveData(data);
+      return json({ ok: true, feed: publicData(data, { viewerHash }) });
     }
 
     const adminActions = ['admin-feed', 'delete-post', 'restore-post', 'delete-comment', 'restore-comment', 'settings', 'sync-now'];
@@ -581,12 +627,12 @@ export default async (req, context) => {
 
     if (req.method === 'POST' && action === 'admin-feed') {
       data = await syncGoogleSheet(data);
-      return json({ ok: true, feed: publicData(data, { admin: true }) });
+      return json({ ok: true, feed: publicData(data, { admin: true, viewerHash }) });
     }
 
     if (req.method === 'POST' && action === 'sync-now') {
       data = await syncGoogleSheet(data, { force: true });
-      return json({ ok: true, feed: publicData(data, { admin: true }) });
+      return json({ ok: true, feed: publicData(data, { admin: true, viewerHash }) });
     }
 
     if (req.method === 'POST' && action === 'delete-post') {
@@ -595,7 +641,7 @@ export default async (req, context) => {
       if (!post) return json({ error: '글을 찾을 수 없어요.' }, 404);
       post.status = '숨김';
       await saveData(data);
-      return json({ ok: true, feed: publicData(data, { admin: true }) });
+      return json({ ok: true, feed: publicData(data, { admin: true, viewerHash }) });
     }
 
     if (req.method === 'POST' && action === 'restore-post') {
@@ -604,7 +650,7 @@ export default async (req, context) => {
       if (!post) return json({ error: '글을 찾을 수 없어요.' }, 404);
       post.status = '게시';
       await saveData(data);
-      return json({ ok: true, feed: publicData(data, { admin: true }) });
+      return json({ ok: true, feed: publicData(data, { admin: true, viewerHash }) });
     }
 
     if (req.method === 'POST' && action === 'delete-comment') {
@@ -613,7 +659,7 @@ export default async (req, context) => {
       if (!comment) return json({ error: '댓글을 찾을 수 없어요.' }, 404);
       comment.status = '숨김';
       await saveData(data);
-      return json({ ok: true, feed: publicData(data, { admin: true }) });
+      return json({ ok: true, feed: publicData(data, { admin: true, viewerHash }) });
     }
 
     if (req.method === 'POST' && action === 'restore-comment') {
@@ -622,7 +668,7 @@ export default async (req, context) => {
       if (!comment) return json({ error: '댓글을 찾을 수 없어요.' }, 404);
       comment.status = '게시';
       await saveData(data);
-      return json({ ok: true, feed: publicData(data, { admin: true }) });
+      return json({ ok: true, feed: publicData(data, { admin: true, viewerHash }) });
     }
 
     if (req.method === 'POST' && action === 'settings') {
@@ -633,7 +679,7 @@ export default async (req, context) => {
         notice: cleanText(body.notice || data.settings.notice, 200)
       };
       await saveData(data);
-      return json({ ok: true, settings: data.settings, feed: publicData(data, { admin: true }) });
+      return json({ ok: true, settings: data.settings, feed: publicData(data, { admin: true, viewerHash }) });
     }
 
     return json({ error: '요청을 처리할 수 없어요.' }, 404);

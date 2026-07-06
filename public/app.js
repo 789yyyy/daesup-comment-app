@@ -255,6 +255,37 @@ function openWriteModal() {
   });
 }
 
+async function vote(kind, id, dir) {
+  try {
+    const action = kind === 'post' ? 'vote-post' : 'vote-comment';
+    const payload = kind === 'post' ? { postId: id, dir } : { commentId: id, dir };
+    const result = await api(action, { method: 'POST', body: JSON.stringify(payload) });
+    updateStateFromFeed(result.feed);
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+function buildVoteWidget(kind, item) {
+  const wrap = document.createElement('div');
+  wrap.className = 'vote-widget';
+
+  const up = document.createElement('button');
+  up.type = 'button';
+  up.className = 'vote-btn up' + (item.myVote === 'up' ? ' active' : '');
+  up.textContent = `👍 ${item.up || 0}`;
+  up.addEventListener('click', () => vote(kind, item.id, 'up'));
+
+  const down = document.createElement('button');
+  down.type = 'button';
+  down.className = 'vote-btn down' + (item.myVote === 'down' ? ' active' : '');
+  down.textContent = `👎 ${item.down || 0}`;
+  down.addEventListener('click', () => vote(kind, item.id, 'down'));
+
+  wrap.append(up, down);
+  return wrap;
+}
+
 function renderComment(comment, commentsBox) {
   const wrapper = document.createElement('div');
   wrapper.className = 'comment';
@@ -269,7 +300,7 @@ function renderComment(comment, commentsBox) {
   meta.textContent = formatDate(comment.createdAt);
 
   wrapper.append(name, text, meta);
-
+  wrapper.append(buildVoteWidget('comment', comment));
 
   if (state.adminVerified) {
     if (comment.ipHash) {
@@ -334,6 +365,7 @@ function renderPosts() {
     }
     $('.date', node).textContent = formatDate(post.createdAt);
     $('.post-content', node).textContent = post.content || '';
+    $('.post-votes', node).append(buildVoteWidget('post', post));
     const commentsBox = $('.comments', node);
     const postComments = commentsFor(post.id);
     if (postComments.length) {

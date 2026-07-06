@@ -514,6 +514,28 @@ h1 {
 .post-card.comments-open .comments { display: grid; }
 .post-card.comments-open .comment-form { display: grid; }
 
+/* 추천/비추천 투표 */
+.vote-widget { display: inline-flex; gap: 8px; }
+.post-votes { margin: 4px 0 10px; }
+.vote-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.vote-btn:hover { border-color: var(--primary); }
+.vote-btn.up.active { background: rgba(43,124,255,.12); border-color: var(--primary); color: var(--primary-dark); }
+.vote-btn.down.active { background: rgba(217,65,65,.12); border-color: var(--danger); color: var(--danger); }
+.comment .vote-widget { margin-top: 8px; }
+
 /* ===== 다크 모드 ===== */
 html[data-theme="dark"] {
   --bg: #0f172a;
@@ -560,3 +582,6 @@ html[data-theme="dark"] .danger-light-btn { background: rgba(255,107,107,.14); }
 html[data-theme="dark"] .sync-status { background: #16202e; }
 html[data-theme="dark"] .comment-count { background: #20344f; color: #bcd6ff; }
 html[data-theme="dark"] .comment-count:hover { background: #294263; }
+html[data-theme="dark"] .vote-btn { background: #0f1a2b; color: var(--muted); border-color: var(--line); }
+html[data-theme="dark"] .vote-btn.up.active { background: rgba(127,180,255,.18); color: #9ecbff; border-color: #4f9dff; }
+html[data-theme="dark"] .vote-btn.down.active { background: rgba(255,107,107,.18); color: #ff9b9b; border-color: #ff6b6b; }
