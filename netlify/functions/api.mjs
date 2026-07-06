@@ -202,7 +202,12 @@ const FIELD_ALIASES = {
     '대나무숲에남기고싶은말을적어주세요', '대나무숲에남기고싶은말', '남기고싶은말', '하고싶은말', '익명으로남기고싶은말', '속마음', '건의칭찬내용'
   ],
   category: ['category', '카테고리', '분류', '종류', '유형', '구분', '말머리', '게시판'],
-  nickname: ['nickname', '닉네임', '별명', '작성자', '이름', '작성자명', '본인닉네임', '본인이쓴닉네임', '닉네임을입력해주세요', '닉네임기본익명', '표시이름'],
+  nickname: [
+    'nickname', '닉네임', '닉넴', '닉', '별명', '작성자', '이름', '작성자명', '본인닉네임', '본인이쓴닉네임',
+    '닉네임을입력해주세요', '닉네임기본익명', '표시이름', '대화명', '본인대화명',
+    '오픈채팅닉네임', '오픈카톡닉네임', '카톡닉네임', '카카오톡닉네임', '단톡방닉네임', '방닉네임', '사용닉네임',
+    '구글폼닉네임', '폼닉네임', '제보자닉네임', '익명닉네임', '대숲닉네임'
+  ],
   status: ['status', '상태', '공개여부', '게시여부', '승인', '공개', '관리자확인'],
   createdAt: ['createdat', 'created_at', '작성일', '작성일시', '제출일', '제출시간', '타임스탬프', 'timestamp', '날짜', '일시', '시간']
 };
@@ -211,8 +216,27 @@ function findValue(row, field) {
   const entries = Object.entries(row).filter(([key]) => key !== '__rowNumber');
   const aliases = (FIELD_ALIASES[field] || []).map(compactKey);
 
+  // 1) 컬럼명이 정확히 같은 경우
   for (const [key, value] of entries) {
     if (aliases.includes(compactKey(key))) return value;
+  }
+
+  // 2) 구글폼 질문이 길어도 잡히게: "본인 닉네임을 입력해주세요" 같은 문장형 컬럼 대응
+  for (const [key, value] of entries) {
+    const compact = compactKey(key);
+    if (!String(value ?? '').trim()) continue;
+    if (aliases.some(alias => alias && (compact.includes(alias) || alias.includes(compact)))) return value;
+  }
+
+  // 3) 닉네임은 실제 구글폼에서 질문 문구가 제각각이라 한 번 더 넓게 잡기
+  if (field === 'nickname') {
+    const nicknameLikeWords = ['닉네임', '닉넴', '닉', '별명', '대화명', '작성자', '제보자', '이름'];
+    for (const [key, value] of entries) {
+      const compact = compactKey(key);
+      const raw = String(value ?? '').trim();
+      if (!raw) continue;
+      if (nicknameLikeWords.some(word => compact.includes(compactKey(word)))) return value;
+    }
   }
 
   // 구글폼 질문 문장처럼 길게 들어온 경우까지 넓게 잡기
@@ -224,7 +248,13 @@ function findValue(row, field) {
       ...FIELD_ALIASES.createdAt.map(compactKey)
     ]);
     const candidates = entries
-      .filter(([key, value]) => !metaKeys.has(compactKey(key)) && String(value ?? '').trim())
+      .filter(([key, value]) => {
+        const compact = compactKey(key);
+        const isMeta = metaKeys.has(compact)
+          || FIELD_ALIASES.nickname.map(compactKey).some(alias => compact.includes(alias) || alias.includes(compact))
+          || ['닉네임', '닉넴', '닉', '별명', '대화명', '작성자', '제보자', '이름'].some(word => compact.includes(compactKey(word)));
+        return !isMeta && String(value ?? '').trim();
+      })
       .sort((a, b) => String(b[1]).length - String(a[1]).length);
     return candidates[0]?.[1] || '';
   }
