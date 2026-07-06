@@ -52,6 +52,20 @@ function showStatus(message, isError = false) {
   el.classList.remove('hidden');
 }
 
+function updateAdminGate() {
+  const tools = $('#adminTools');
+  const help = $('#adminLoginHelp');
+  const loginButton = $('#adminRefresh');
+  if (!tools) return;
+  tools.classList.toggle('hidden', !state.adminVerified);
+  if (help) {
+    help.textContent = state.adminVerified
+      ? '관리자 로그인 완료! 이제 나영이만 관리 도구를 볼 수 있어.'
+      : 'PIN이 맞아야 설정, 글 등록, 숨김 처리, 구글시트 반영 버튼이 열려.';
+  }
+  if (loginButton) loginButton.textContent = state.adminVerified ? '관리자 새로고침' : '관리자 로그인';
+}
+
 function applySettings() {
   const settings = state.settings || {};
   $('#appTitle').textContent = settings.appTitle || '대나무숲';
@@ -102,7 +116,8 @@ function renderComment(comment, commentsBox) {
 
   wrapper.append(name, text, meta);
 
-  if (state.adminOpen) {
+
+  if (state.adminVerified) {
     const del = document.createElement('button');
     del.className = 'danger-text';
     del.type = 'button';
@@ -142,7 +157,6 @@ function renderPosts() {
     nicknameEl.classList.toggle('admin-visible', Boolean(post.writerAdminOnly && state.adminOpen));
     $('.date', node).textContent = formatDate(post.createdAt);
     $('.post-content', node).textContent = post.content || '';
-
     const commentsBox = $('.comments', node);
     const postComments = commentsFor(post.id);
     if (postComments.length > 1) {
@@ -183,7 +197,7 @@ function renderPosts() {
     });
 
     const delPost = $('.delete-post', node);
-    if (state.adminOpen) {
+    if (state.adminVerified) {
       delPost.classList.remove('hidden');
       delPost.addEventListener('click', () => deletePost(post.id));
     }
@@ -216,6 +230,7 @@ function updateStateFromFeed(feed) {
   state.sync = feed.sync || {};
   updateSyncStatus();
   $('#pinWarning').classList.toggle('hidden', !feed.adminDefaultPin);
+  updateAdminGate();
   applySettings();
   updateCategoryFilter();
   renderPosts();
@@ -241,10 +256,11 @@ async function loadAdminFeed({ silent = false } = {}) {
   try {
     const result = await adminRequest('admin-feed', {});
     updateStateFromFeed(result.feed);
-    if (!silent) alert('관리자 정보로 새로고침했어. 이제 실제 작성자 닉네임은 관리자에게만 보여.');
+    if (!silent) alert('관리자 로그인 완료! 이제 관리 도구가 열려.');
     return true;
   } catch (error) {
     state.adminVerified = false;
+    updateAdminGate();
     if (!silent) alert(error.message);
     return false;
   }
@@ -376,6 +392,7 @@ function bindEvents() {
     state.adminOpen = true;
     $('#adminPanel').classList.remove('hidden');
     $('#adminPin').value = localStorage.getItem('daesupAdminPin') || '';
+    updateAdminGate();
     if (adminPin()) loadAdminFeed({ silent: true });
     renderPosts();
     $('#adminPanel').scrollIntoView({ block: 'start' });
@@ -384,6 +401,7 @@ function bindEvents() {
   $('#closeAdmin').addEventListener('click', () => {
     state.adminOpen = false;
     state.adminVerified = false;
+    updateAdminGate();
     $('#adminPanel').classList.add('hidden');
     loadFeed();
   });
@@ -391,9 +409,11 @@ function bindEvents() {
   $('#refreshBtn').addEventListener('click', loadFeed);
   $('#searchInput').addEventListener('input', renderPosts);
   $('#categoryFilter').addEventListener('change', renderPosts);
-  $('#adminPin').addEventListener('change', () => {
+  $('#adminPin').addEventListener('input', () => {
     savePin();
-    if (adminPin()) loadAdminFeed({ silent: true });
+  });
+  $('#adminPin').addEventListener('keydown', event => {
+    if (event.key === 'Enter') loadAdminFeed();
   });
 
   const adminRefreshButton = $('#adminRefresh');
@@ -496,5 +516,6 @@ if ('serviceWorker' in navigator) {
 }
 
 bindEvents();
+updateAdminGate();
 loadFeed();
 setInterval(loadFeed, 60000);

@@ -31,18 +31,20 @@
         <button id="closeAdmin" class="ghost-btn" type="button">닫기</button>
       </div>
 
-      <div id="pinWarning" class="warning hidden">현재 기본 PIN 1234로 열려 있어요. Netlify 환경변수 ADMIN_PIN을 꼭 바꿔줘!</div>
+      <div class="admin-login-box">
+        <div id="pinWarning" class="warning hidden">현재 기본 PIN 1234로 열려 있어요. Netlify 환경변수 ADMIN_PIN을 꼭 바꿔줘!</div>
 
-      <label class="field">
-        <span>관리자 PIN</span>
-        <input id="adminPin" type="password" placeholder="예: 1234" autocomplete="current-password" />
-      </label>
-      <div class="row gap wrap admin-pin-actions">
-        <button id="adminRefresh" class="secondary-btn" type="button">관리자 정보 보기</button>
-        <span class="help">관리자 PIN을 입력하면 구글폼에서 적은 닉네임까지 나영이만 볼 수 있어.</span>
+        <label class="field">
+          <span>관리자 PIN</span>
+          <input id="adminPin" type="password" placeholder="관리자 비밀번호 입력" autocomplete="current-password" />
+        </label>
+        <div class="row gap wrap admin-pin-actions">
+          <button id="adminRefresh" class="secondary-btn" type="button">관리자 로그인</button>
+          <span id="adminLoginHelp" class="help">PIN이 맞아야 설정, 글 등록, 숨김 처리, 구글시트 반영 버튼이 열려.</span>
+        </div>
       </div>
 
-      <div class="admin-grid">
+      <div id="adminTools" class="admin-grid hidden">
         <form id="settingsForm" class="mini-card">
           <h3>앱 문구 바꾸기</h3>
           <label class="field"><span>앱 제목</span><input id="settingTitle" type="text" /></label>
@@ -61,7 +63,7 @@
 
         <div class="mini-card">
           <h3>구글시트 자동연동</h3>
-          <p class="help">구글시트에 새 줄을 입력하면 앱 새로고침 때 자동으로 반영돼. 앱은 1분마다 자동 새로고침도 해.</p>
+          <p class="help">구글시트에 새 줄을 입력하면 앱 새로고침 때 자동으로 반영돼. 닉네임은 게시글에 공개돼.</p>
           <p id="sheetSyncStatus" class="sync-status help">구글시트 연동 상태 확인 중...</p>
           <button id="syncNow" class="secondary-btn" type="button">지금 구글시트 반영</button>
         </div>

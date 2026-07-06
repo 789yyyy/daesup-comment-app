@@ -209,7 +209,14 @@ const FIELD_ALIASES = {
     '구글폼닉네임', '폼닉네임', '제보자닉네임', '익명닉네임', '대숲닉네임'
   ],
   status: ['status', '상태', '공개여부', '게시여부', '승인', '공개', '관리자확인'],
-  createdAt: ['createdat', 'created_at', '작성일', '작성일시', '제출일', '제출시간', '타임스탬프', 'timestamp', '날짜', '일시', '시간']
+  createdAt: ['createdat', 'created_at', '작성일', '작성일시', '제출일', '제출시간', '타임스탬프', 'timestamp', '날짜', '일시', '시간'],
+  email: ['email', '이메일', '이메일주소', '메일', '메일주소', '구글계정', '구글이메일', '이메일을입력해주세요', '이메일주소를입력해주세요'],
+  realName: ['realname', 'name', '실명', '이름', '본명', '성함', '실제이름', '본인이름'],
+  phone: ['phone', 'tel', '전화번호', '휴대폰', '연락처', '핸드폰번호', '휴대폰번호', '전화'],
+  privateContact: ['비공개연락처', '관리자용연락처', '운영진확인용', '운영자확인용', '확인용정보', '비상연락처'],
+  account: ['아이디', '카톡아이디', '카카오톡아이디', '인스타아이디', '오픈채팅프로필', '오픈채팅이름'],
+  location: ['장소', '위치', '지역', '방문장소', '모임장소'],
+  adminMemo: ['관리자메모', '운영진메모', '메모', '비고']
 };
 
 function findValue(row, field) {
@@ -302,6 +309,32 @@ function normalizePost(input = {}) {
   };
 }
 
+
+function buildAdminMeta(row, { nickname = '', createdAt = '' } = {}) {
+  const meta = {
+    sheetRow: row.__rowNumber || '',
+    submittedAt: createdAt || parseMaybeDate(findValue(row, 'createdAt')) || '',
+    sheetNickname: cleanText(nickname || findValue(row, 'nickname') || '', 60)
+  };
+
+  const fields = [
+    ['email', '이메일'],
+    ['realName', '실명'],
+    ['phone', '전화번호'],
+    ['privateContact', '비공개 연락처'],
+    ['account', '계정/아이디'],
+    ['location', '장소/지역'],
+    ['adminMemo', '관리자 메모']
+  ];
+
+  for (const [field, label] of fields) {
+    const value = cleanText(findValue(row, field), field === 'adminMemo' ? 300 : 120);
+    if (value) meta[field] = { label, value };
+  }
+
+  return meta;
+}
+
 function normalizeSheetPost(row) {
   const content = cleanText(findValue(row, 'content'), 2000);
   if (!content) return null;
@@ -318,7 +351,8 @@ function normalizeSheetPost(row) {
     nickname,
     content,
     status,
-    source: 'google-sheet'
+    source: 'google-sheet',
+    adminMeta: buildAdminMeta(row, { nickname, createdAt })
   };
 }
 
@@ -397,17 +431,33 @@ function publicData(data, { admin = false } = {}) {
   const posts = data.posts
     .filter(post => post.status !== '숨김')
     .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt))
-    .map(post => ({
-      ...post,
-      // 일반 이용자에게는 작성자 닉네임을 절대 내려주지 않음.
-      // 관리자 PIN으로 확인한 화면에서만 실제 닉네임 표시.
-      nickname: admin ? (post.nickname || '익명') : '익명',
-      writerAdminOnly: Boolean(admin && post.nickname && post.nickname !== '익명')
-    }));
+    .map(post => {
+      const publicPost = {
+        id: post.id,
+        createdAt: post.createdAt,
+        category: post.category || '속마음',
+        nickname: post.nickname || '익명',
+        content: post.content || '',
+        status: post.status || '게시',
+        source: post.source || 'manual'
+      };
+      return publicPost;
+    });
   const visiblePostIds = new Set(posts.map(post => post.id));
   const comments = data.comments
     .filter(comment => comment.status !== '숨김' && visiblePostIds.has(comment.postId))
-    .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
+    .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt))
+    .map(comment => {
+      const publicComment = {
+        id: comment.id,
+        postId: comment.postId,
+        createdAt: comment.createdAt,
+        nickname: comment.nickname || '익명',
+        content: comment.content || '',
+        status: comment.status || '게시'
+      };
+      return publicComment;
+    });
   return {
     settings: data.settings,
     posts,
