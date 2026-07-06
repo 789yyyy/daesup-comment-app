@@ -193,19 +193,8 @@ function renderPosts() {
     $('.post-content', node).textContent = post.content || '';
     const commentsBox = $('.comments', node);
     const postComments = commentsFor(post.id);
-    if (postComments.length > 1) {
-      const orderNote = document.createElement('p');
-      orderNote.className = 'comment-order-note';
-      orderNote.textContent = '댓글은 최신순으로 보여줘.';
-      commentsBox.append(orderNote);
-    }
     if (postComments.length) {
       postComments.forEach(comment => renderComment(comment, commentsBox));
-    } else {
-      const empty = document.createElement('p');
-      empty.className = 'help';
-      empty.textContent = '아직 댓글이 없어. 첫 댓글을 남겨줘!';
-      commentsBox.append(empty);
     }
 
     const form = $('.comment-form', node);
