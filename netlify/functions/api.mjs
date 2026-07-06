@@ -31,6 +31,17 @@ function hash(value) {
   return createHash('sha1').update(String(value ?? '')).digest('hex');
 }
 
+// 원본 IP는 저장하지 않고, 해시 지문만 만들기 위한 클라이언트 IP 추출
+function clientIp(req, context) {
+  const raw =
+    req.headers.get('x-nf-client-connection-ip') ||
+    req.headers.get('x-forwarded-for') ||
+    req.headers.get('client-ip') ||
+    '';
+  const first = String(raw).split(',')[0].trim();
+  return first || context?.ip || '';
+}
+
 function cleanText(value, max = 1000) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
@@ -272,6 +283,18 @@ function findValue(row, field) {
 function parseMaybeDate(value) {
   const raw = cleanText(value, 80);
   if (!raw) return '';
+
+  // 구글폼 한국어 타임스탬프: "2026. 6. 26 오전 10:55:42" / "2026. 7. 6 오후 3:04"
+  const kr = raw.match(/(\d{4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})\s*(오전|오후)\s*(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (kr) {
+    const [, y, mo, d, ampm, h, mi, s] = kr;
+    let hour = Number(h);
+    if (ampm === '오후' && hour < 12) hour += 12;
+    if (ampm === '오전' && hour === 12) hour = 0;
+    const dt = new Date(Number(y), Number(mo) - 1, Number(d), hour, Number(mi), s ? Number(s) : 0);
+    if (!Number.isNaN(dt.getTime())) return dt.toISOString();
+  }
+
   const direct = new Date(raw);
   if (!Number.isNaN(direct.getTime())) return direct.toISOString();
 
@@ -441,6 +464,8 @@ function publicData(data, { admin = false } = {}) {
         status: post.status || '게시',
         source: post.source || 'manual'
       };
+      // 관리자 화면에서만 IP 해시의 앞 8자리를 지문으로 노출 (원본 IP·전체 해시는 비공개)
+      if (admin && post.ipHash) publicPost.ipHash = String(post.ipHash).slice(0, 8);
       return publicPost;
     });
   const visiblePostIds = new Set(posts.map(post => post.id));
@@ -456,9 +481,11 @@ function publicData(data, { admin = false } = {}) {
         content: comment.content || '',
         status: comment.status || '게시'
       };
+      // 관리자 화면에서만 IP 해시의 앞 8자리를 지문으로 노출 (원본 IP·전체 해시는 비공개)
+      if (admin && comment.ipHash) publicComment.ipHash = String(comment.ipHash).slice(0, 8);
       return publicComment;
     });
-  return {
+  const result = {
     settings: data.settings,
     posts,
     comments,
@@ -466,9 +493,36 @@ function publicData(data, { admin = false } = {}) {
     adminDefaultPin: !process.env.ADMIN_PIN,
     adminView: admin
   };
+  // 관리자 화면에만 숨긴 글·댓글 목록을 함께 내려줌
+  if (admin) {
+    result.hiddenPosts = data.posts
+      .filter(post => post.status === '숨김')
+      .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt))
+      .map(post => ({
+        id: post.id,
+        createdAt: post.createdAt,
+        category: post.category || '속마음',
+        nickname: post.nickname || '익명',
+        content: post.content || '',
+        source: post.source || 'manual',
+        ipHash: post.ipHash ? String(post.ipHash).slice(0, 8) : ''
+      }));
+    result.hiddenComments = data.comments
+      .filter(comment => comment.status === '숨김')
+      .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt))
+      .map(comment => ({
+        id: comment.id,
+        postId: comment.postId,
+        createdAt: comment.createdAt,
+        nickname: comment.nickname || '익명',
+        content: comment.content || '',
+        ipHash: comment.ipHash ? String(comment.ipHash).slice(0, 8) : ''
+      }));
+  }
+  return result;
 }
 
-export default async (req) => {
+export default async (req, context) => {
   const url = new URL(req.url);
 
   if (req.method === 'OPTIONS') {
@@ -484,10 +538,6 @@ export default async (req) => {
         data = await syncGoogleSheet(data);
         return json(publicData(data));
       }
-      if (action === 'admin-export') {
-        if (!isAdmin(req, {}, url)) return json({ error: '관리자 PIN이 맞지 않아요.' }, 401);
-        return json(data);
-      }
       return json({ error: '없는 API예요.' }, 404);
     }
 
@@ -498,12 +548,30 @@ export default async (req) => {
       if (!comment.postId || !comment.content) return json({ error: '댓글 내용을 입력해 주세요.' }, 400);
       const target = data.posts.find(post => post.id === comment.postId && post.status !== '숨김');
       if (!target) return json({ error: '글을 찾을 수 없어요.' }, 404);
+      const ip = clientIp(req, context);
+      comment.ipHash = ip ? hash(ip) : '';
       data.comments.push(comment);
       await saveData(data);
-      return json({ ok: true, comment, feed: publicData(data) });
+      return json({ ok: true, feed: publicData(data) });
     }
 
-    const adminActions = ['admin-feed', 'post', 'import-posts', 'delete-post', 'delete-comment', 'settings', 'reset-sample', 'sync-now'];
+    if (req.method === 'POST' && action === 'create-post') {
+      // 누구나 글쓰기 가능. id·status는 사용자 입력을 신뢰하지 않음(주입 방지).
+      const post = normalizePost({
+        category: body.category,
+        nickname: body.nickname,
+        content: body.content,
+        source: 'user'
+      });
+      if (!post.content) return json({ error: '글 내용을 입력해 주세요.' }, 400);
+      const ip = clientIp(req, context);
+      post.ipHash = ip ? hash(ip) : '';
+      data.posts.unshift(post);
+      await saveData(data);
+      return json({ ok: true, feed: publicData(data) });
+    }
+
+    const adminActions = ['admin-feed', 'delete-post', 'restore-post', 'delete-comment', 'restore-comment', 'settings', 'sync-now'];
     if (adminActions.includes(action) && !isAdmin(req, body, url)) {
       return json({ error: '관리자 PIN이 맞지 않아요.' }, 401);
     }
@@ -518,29 +586,20 @@ export default async (req) => {
       return json({ ok: true, feed: publicData(data, { admin: true }) });
     }
 
-    if (req.method === 'POST' && action === 'post') {
-      const post = normalizePost({ ...body, source: 'manual' });
-      if (!post.content) return json({ error: '게시글 내용을 입력해 주세요.' }, 400);
-      data.posts.unshift(post);
-      await saveData(data);
-      return json({ ok: true, post, feed: publicData(data, { admin: true }) });
-    }
-
-    if (req.method === 'POST' && action === 'import-posts') {
-      const posts = Array.isArray(body.posts) ? body.posts.map(item => normalizePost({ ...item, source: 'import' })).filter(post => post.content) : [];
-      if (!posts.length) return json({ error: '가져올 글이 없어요. content 컬럼이 필요해요.' }, 400);
-      const mode = body.mode === 'replace' ? 'replace' : 'append';
-      data.posts = mode === 'replace' ? posts : [...posts, ...data.posts];
-      if (mode === 'replace') data.comments = [];
-      await saveData(data);
-      return json({ ok: true, count: posts.length, feed: publicData(data, { admin: true }) });
-    }
-
     if (req.method === 'POST' && action === 'delete-post') {
       const postId = cleanText(body.postId, 100);
       const post = data.posts.find(item => item.id === postId);
       if (!post) return json({ error: '글을 찾을 수 없어요.' }, 404);
       post.status = '숨김';
+      await saveData(data);
+      return json({ ok: true, feed: publicData(data, { admin: true }) });
+    }
+
+    if (req.method === 'POST' && action === 'restore-post') {
+      const postId = cleanText(body.postId, 100);
+      const post = data.posts.find(item => item.id === postId);
+      if (!post) return json({ error: '글을 찾을 수 없어요.' }, 404);
+      post.status = '게시';
       await saveData(data);
       return json({ ok: true, feed: publicData(data, { admin: true }) });
     }
@@ -554,6 +613,15 @@ export default async (req) => {
       return json({ ok: true, feed: publicData(data, { admin: true }) });
     }
 
+    if (req.method === 'POST' && action === 'restore-comment') {
+      const commentId = cleanText(body.commentId, 100);
+      const comment = data.comments.find(item => item.id === commentId);
+      if (!comment) return json({ error: '댓글을 찾을 수 없어요.' }, 404);
+      comment.status = '게시';
+      await saveData(data);
+      return json({ ok: true, feed: publicData(data, { admin: true }) });
+    }
+
     if (req.method === 'POST' && action === 'settings') {
       data.settings = {
         ...data.settings,
@@ -563,12 +631,6 @@ export default async (req) => {
       };
       await saveData(data);
       return json({ ok: true, settings: data.settings, feed: publicData(data, { admin: true }) });
-    }
-
-    if (req.method === 'POST' && action === 'reset-sample') {
-      const seed = defaultData();
-      await saveData(seed);
-      return json({ ok: true, feed: publicData(seed, { admin: true }) });
     }
 
     return json({ error: '요청을 처리할 수 없어요.' }, 404);

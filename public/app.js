@@ -21,8 +21,11 @@ const state = {
   sync: {},
   adminOpen: false,
   adminVerified: false,
-  parsedImportPosts: [],
-  commentDrafts: {}
+  adminPin: '',
+  hiddenPosts: [],
+  hiddenComments: [],
+  commentDrafts: {},
+  expandedPosts: new Set()
 };
 
 function formatDate(value) {
@@ -38,12 +41,9 @@ function formatDate(value) {
 }
 
 function adminPin() {
-  return $('#adminPin').value.trim() || localStorage.getItem('daesupAdminPin') || '';
-}
-
-function savePin() {
-  const pin = $('#adminPin').value.trim();
-  if (pin) localStorage.setItem('daesupAdminPin', pin);
+  // 입력창 값 우선, 없으면 로그인 때 메모리에 담아둔 PIN 사용
+  // (localStorage에 저장 안 함 → 새로고침하면 로그인 풀림)
+  return $('#adminPin').value.trim() || state.adminPin || '';
 }
 
 function showStatus(message, isError = false) {
@@ -55,16 +55,11 @@ function showStatus(message, isError = false) {
 
 function updateAdminGate() {
   const tools = $('#adminTools');
-  const help = $('#adminLoginHelp');
-  const loginButton = $('#adminRefresh');
+  const loginBox = $('#adminLoginBox');
   if (!tools) return;
+  // 로그인 전에는 PIN 입력창, 로그인 후에는 관리 도구만 보이게
   tools.classList.toggle('hidden', !state.adminVerified);
-  if (help) {
-    help.textContent = state.adminVerified
-      ? '관리자 로그인 완료! 이제 나영이만 관리 도구를 볼 수 있어.'
-      : 'PIN이 맞아야 설정, 글 등록, 숨김 처리, 구글시트 반영 버튼이 열려.';
-  }
-  if (loginButton) loginButton.textContent = state.adminVerified ? '관리자 새로고침' : '관리자 로그인';
+  if (loginBox) loginBox.classList.toggle('hidden', state.adminVerified);
 }
 
 function applySettings() {
@@ -117,20 +112,147 @@ function captureVisibleCommentDrafts() {
   });
 }
 
-function isTypingOrHasDraft() {
-  captureVisibleCommentDrafts();
-  const active = document.activeElement;
-  const activeTag = active?.tagName || '';
-  const editingNow = active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag);
-  const hasDraft = Object.values(state.commentDrafts).some(draft =>
-    String(draft?.content || '').trim() || String(draft?.nickname || '').trim()
-  );
-  return Boolean(editingNow || hasDraft);
+function postContentById(postId) {
+  const post = state.posts.find(item => item.id === postId);
+  return post ? (post.content || '') : '(숨김 처리되었거나 사라진 글)';
 }
 
-async function autoRefreshFeed() {
-  if (isTypingOrHasDraft()) return;
-  await loadFeed({ silent: true });
+function createModal(titleText) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+
+  const head = document.createElement('div');
+  head.className = 'modal-head';
+  const title = document.createElement('h3');
+  title.textContent = titleText;
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'ghost-btn';
+  closeBtn.type = 'button';
+  closeBtn.textContent = '닫기';
+  head.append(title, closeBtn);
+
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+
+  modal.append(head, body);
+  overlay.append(modal);
+  document.body.append(overlay);
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onEsc);
+  };
+  function onEsc(event) {
+    if (event.key === 'Escape') close();
+  }
+  closeBtn.addEventListener('click', close);
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) close();
+  });
+  document.addEventListener('keydown', onEsc);
+
+  return { body, close };
+}
+
+function openFingerprintPopup(ipHash) {
+  const posts = state.posts.filter(post => post.ipHash === ipHash);
+  const comments = state.comments.filter(comment => comment.ipHash === ipHash);
+  const items = [
+    ...posts.map(post => ({ kind: '글', nickname: post.nickname, createdAt: post.createdAt, content: post.content, sub: '' })),
+    ...comments.map(comment => ({ kind: '댓글', nickname: comment.nickname, createdAt: comment.createdAt, content: comment.content, sub: `↳ 원글: ${postContentById(comment.postId).slice(0, 60)}` }))
+  ].sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
+
+  const { body } = createModal(`지문 #${ipHash} · 글 ${posts.length} · 댓글 ${comments.length}`);
+  if (!items.length) {
+    const empty = document.createElement('p');
+    empty.className = 'help';
+    empty.textContent = '이 지문으로 보이는 글/댓글이 없어요.';
+    body.append(empty);
+    return;
+  }
+  for (const it of items) {
+    const item = document.createElement('div');
+    item.className = 'modal-comment';
+
+    const meta = document.createElement('div');
+    meta.className = 'modal-comment-meta';
+    meta.textContent = `[${it.kind}] ${it.nickname || '익명'} · ${formatDate(it.createdAt)}`;
+
+    const text = document.createElement('p');
+    text.className = 'modal-comment-text';
+    text.textContent = it.content || '';
+
+    item.append(meta, text);
+    if (it.sub) {
+      const sub = document.createElement('p');
+      sub.className = 'modal-comment-post';
+      sub.textContent = it.sub;
+      item.append(sub);
+    }
+    body.append(item);
+  }
+}
+
+function openWriteModal() {
+  const { body, close } = createModal('글쓰기');
+
+  const form = document.createElement('form');
+  form.className = 'modal-form';
+
+  // 카테고리 select (기본 3종 + 기존 글에 있는 카테고리)
+  const catField = document.createElement('label');
+  catField.className = 'field';
+  const catSpan = document.createElement('span');
+  catSpan.textContent = '카테고리';
+  const catSelect = document.createElement('select');
+  catSelect.name = 'category';
+  const categories = [...new Set(['속마음', '건의', '칭찬', ...state.posts.map(post => post.category).filter(Boolean)])];
+  for (const category of categories) {
+    const option = document.createElement('option');
+    option.value = category;
+    option.textContent = category;
+    catSelect.append(option);
+  }
+  catField.append(catSpan, catSelect);
+
+  const otherFields = document.createElement('div');
+  otherFields.innerHTML = `
+    <label class="field"><span>닉네임</span><input name="nickname" type="text" placeholder="익명" maxlength="20" /></label>
+    <label class="field"><span>내용</span><textarea name="content" rows="5" placeholder="하고 싶은 말을 적어줘" maxlength="2000" required></textarea></label>
+  `;
+
+  const submit = document.createElement('button');
+  submit.className = 'primary-btn';
+  submit.type = 'submit';
+  submit.textContent = '등록';
+
+  form.append(catField, ...otherFields.children, submit);
+  body.append(form);
+  setTimeout(() => form.elements.content?.focus(), 0);
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const content = String(form.elements.content.value || '').trim();
+    const category = String(form.elements.category.value || '').trim() || '속마음';
+    const nickname = String(form.elements.nickname.value || '').trim() || '익명';
+    if (!content) return;
+    try {
+      submit.disabled = true;
+      const result = await api('create-post', {
+        method: 'POST',
+        body: JSON.stringify({ category, nickname, content })
+      });
+      updateStateFromFeed(result.feed);
+      close();
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      submit.disabled = false;
+    }
+  });
 }
 
 function renderComment(comment, commentsBox) {
@@ -150,10 +272,20 @@ function renderComment(comment, commentsBox) {
 
 
   if (state.adminVerified) {
+    if (comment.ipHash) {
+      const fp = document.createElement('button');
+      fp.type = 'button';
+      fp.className = 'ip-fingerprint';
+      fp.textContent = `#${comment.ipHash}`;
+      fp.title = '이 지문을 누르면 같은 작성자가 쓴 댓글을 모아 볼 수 있어요. (IP 해시 앞 8자리, 원본 IP는 저장 안 함)';
+      fp.addEventListener('click', () => openFingerprintPopup(comment.ipHash));
+      wrapper.append(fp);
+    }
+
     const del = document.createElement('button');
     del.className = 'danger-text';
     del.type = 'button';
-    del.textContent = '관리자: 댓글 숨김';
+    del.textContent = '댓글 숨김';
     del.addEventListener('click', () => deleteComment(comment.id));
     wrapper.append(del);
   }
@@ -166,17 +298,19 @@ function renderPosts() {
   const list = $('#postList');
   const template = $('#postTemplate');
   const keyword = $('#searchInput').value.trim().toLowerCase();
+  const searchType = $('#searchType')?.value || 'content';
   const category = $('#categoryFilter').value;
 
   list.innerHTML = '';
   const filtered = state.posts.filter(post => {
-    const matchesKeyword = !keyword || String(post.content || '').toLowerCase().includes(keyword);
+    const field = searchType === 'nickname' ? post.nickname : post.content;
+    const matchesKeyword = !keyword || String(field || '').toLowerCase().includes(keyword);
     const matchesCategory = category === 'all' || post.category === category;
     return matchesKeyword && matchesCategory;
-  });
+  }).sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
 
   if (!filtered.length) {
-    showStatus('아직 보여줄 글이 없거나 검색 결과가 없어.', false);
+    showStatus('검색 결과가 없습니다.', false);
     return;
   }
   $('#status').classList.add('hidden');
@@ -189,6 +323,15 @@ function renderPosts() {
     const nicknameEl = $('.post-nickname', node);
     nicknameEl.textContent = post.nickname || '익명';
     nicknameEl.classList.toggle('admin-visible', Boolean(post.writerAdminOnly && state.adminOpen));
+    if (state.adminVerified && post.ipHash) {
+      const fp = document.createElement('button');
+      fp.type = 'button';
+      fp.className = 'ip-fingerprint';
+      fp.textContent = `#${post.ipHash}`;
+      fp.title = '이 지문을 누르면 같은 작성자의 글·댓글을 모아 볼 수 있어요. (IP 해시 앞 8자리, 원본 IP는 저장 안 함)';
+      fp.addEventListener('click', () => openFingerprintPopup(post.ipHash));
+      $('.post-left-meta', node).append(fp);
+    }
     $('.date', node).textContent = formatDate(post.createdAt);
     $('.post-content', node).textContent = post.content || '';
     const commentsBox = $('.comments', node);
@@ -196,6 +339,23 @@ function renderPosts() {
     if (postComments.length) {
       postComments.forEach(comment => renderComment(comment, commentsBox));
     }
+
+    // 댓글/입력창은 기본 접힘. 댓글 개수를 누르면 펼쳐짐 (펼침 상태는 유지)
+    const countLabel = postComments.length ? `💬 댓글 ${postComments.length}개` : '💬 아직 댓글이 없어요';
+    const commentCount = $('.comment-count', node);
+    const isOpen = state.expandedPosts.has(post.id) || Boolean(state.commentDrafts[post.id]);
+    card.classList.toggle('comments-open', isOpen);
+    const paintCount = () => {
+      commentCount.textContent = `${countLabel}  ${card.classList.contains('comments-open') ? '▾' : '▸'}`;
+    };
+    paintCount();
+    commentCount.addEventListener('click', () => {
+      const open = !card.classList.contains('comments-open');
+      card.classList.toggle('comments-open', open);
+      if (open) state.expandedPosts.add(post.id);
+      else state.expandedPosts.delete(post.id);
+      paintCount();
+    });
 
     const form = $('.comment-form', node);
     const draft = state.commentDrafts[post.id];
@@ -225,6 +385,7 @@ function renderPosts() {
           body: JSON.stringify({ postId: post.id, nickname, content })
         });
         delete state.commentDrafts[post.id];
+        form.reset();
         updateStateFromFeed(result.feed);
       } catch (error) {
         alert(error.message);
@@ -265,8 +426,9 @@ function updateStateFromFeed(feed) {
   state.comments = feed.comments || [];
   state.settings = feed.settings || {};
   state.sync = feed.sync || {};
+  if (Object.prototype.hasOwnProperty.call(feed, 'hiddenPosts')) state.hiddenPosts = feed.hiddenPosts || [];
+  if (Object.prototype.hasOwnProperty.call(feed, 'hiddenComments')) state.hiddenComments = feed.hiddenComments || [];
   updateSyncStatus();
-  $('#pinWarning').classList.toggle('hidden', !feed.adminDefaultPin);
   updateAdminGate();
   applySettings();
   updateCategoryFilter();
@@ -284,16 +446,17 @@ async function loadFeed({ silent = false } = {}) {
     state.adminVerified = false;
     updateStateFromFeed(feed);
   } catch (error) {
-    showStatus(`서버 연결이 안 됐어: ${error.message}`, true);
+    showStatus(`서버 연결 오류: ${error.message}`, true);
   }
 }
 
 async function loadAdminFeed({ silent = false } = {}) {
-  savePin();
   try {
     const result = await adminRequest('admin-feed', {});
+    state.adminPin = adminPin();   // 로그인 성공 → PIN을 메모리에 보관
+    $('#adminPin').value = '';      // 입력창은 비우기 (아까 댓글처럼)
     updateStateFromFeed(result.feed);
-    if (!silent) alert('관리자 로그인 완료! 이제 관리 도구가 열려.');
+    if (!silent) alert('관리자 로그인 완료!');
     return true;
   } catch (error) {
     state.adminVerified = false;
@@ -304,7 +467,6 @@ async function loadAdminFeed({ silent = false } = {}) {
 }
 
 async function adminRequest(path, body) {
-  savePin();
   return api(path, {
     method: 'POST',
     headers: { 'x-admin-pin': adminPin() },
@@ -313,7 +475,7 @@ async function adminRequest(path, body) {
 }
 
 async function deletePost(postId) {
-  if (!confirm('이 글을 화면에서 숨길까?')) return;
+  if (!confirm('해당 글을 숨기시겠습니까?')) return;
   try {
     const result = await adminRequest('delete-post', { postId });
     updateStateFromFeed(result.feed);
@@ -323,7 +485,7 @@ async function deletePost(postId) {
 }
 
 async function deleteComment(commentId) {
-  if (!confirm('이 댓글을 화면에서 숨길까?')) return;
+  if (!confirm('해당 댓글을 숨기시겠습니까?')) return;
   try {
     const result = await adminRequest('delete-comment', { commentId });
     updateStateFromFeed(result.feed);
@@ -332,103 +494,110 @@ async function deleteComment(commentId) {
   }
 }
 
-function compactKey(value) {
-  return String(value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s\n\r\t_\-()[\]{}.,:;!?"'“”‘’·/\\|]+/g, '');
-}
-
-const importAliases = {
-  content: [
-    'content', '내용', '글내용', '제보내용', '대숲내용', '대나무숲', '대나무숲내용', '익명제보', '제보', '본문', '메시지', 'message', 'answer', '답변',
-    '대나무숲에남기고싶은말을적어주세요', '대나무숲에남기고싶은말', '남기고싶은말', '하고싶은말', '익명으로남기고싶은말', '속마음', '건의칭찬내용'
-  ],
-  category: ['category', '카테고리', '분류', '종류', '유형', '구분', '말머리', '게시판'],
-  nickname: ['nickname', '닉네임', '별명', '작성자', '이름', '작성자명', '본인닉네임', '본인이쓴닉네임', '닉네임을입력해주세요', '닉네임기본익명', '표시이름'],
-  status: ['status', '상태', '공개여부', '게시여부', '승인', '공개', '관리자확인'],
-  createdAt: ['createdat', 'created_at', '작성일', '작성일시', '제출일', '제출시간', '타임스탬프', 'timestamp', '날짜', '일시', '시간']
-};
-
-function getRowValue(row, field) {
-  const entries = Object.entries(row);
-  const aliases = (importAliases[field] || []).map(compactKey);
-  for (const [key, value] of entries) {
-    if (aliases.includes(compactKey(key))) return value;
-  }
-  if (field === 'content') {
-    const metaKeys = new Set([
-      ...importAliases.category.map(compactKey),
-      ...importAliases.nickname.map(compactKey),
-      ...importAliases.status.map(compactKey),
-      ...importAliases.createdAt.map(compactKey)
-    ]);
-    const candidates = entries
-      .filter(([key, value]) => !metaKeys.has(compactKey(key)) && String(value ?? '').trim())
-      .sort((a, b) => String(b[1]).length - String(a[1]).length);
-    return candidates[0]?.[1] || '';
-  }
-  return '';
-}
-
-function parseRows(rows) {
-  return rows.map((row, index) => ({
-    id: String(getRowValue(row, 'id') || '').trim(),
-    content: String(getRowValue(row, 'content') || '').trim(),
-    category: String(getRowValue(row, 'category') || '속마음').trim(),
-    nickname: String(getRowValue(row, 'nickname') || '익명').trim(),
-    status: String(getRowValue(row, 'status') || '게시').trim(),
-    createdAt: String(getRowValue(row, 'createdAt') || '').trim()
-  })).filter(post => String(post.content || '').trim());
-}
-
-async function readImportFile(file) {
-  const ext = file.name.split('.').pop().toLowerCase();
-  if (ext === 'csv') {
-    const text = await file.text();
-    const workbook = XLSX.read(text, { type: 'string' });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    return parseRows(XLSX.utils.sheet_to_json(sheet, { defval: '' }));
-  }
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array' });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  return parseRows(XLSX.utils.sheet_to_json(sheet, { defval: '' }));
-}
-
-async function importPosts(mode) {
-  if (!state.parsedImportPosts.length) {
-    alert('먼저 엑셀/CSV 파일을 선택해줘.');
-    return;
-  }
-  const message = mode === 'replace'
-    ? '기존 글과 댓글을 지우고 이 파일로 전체 교체할까?'
-    : '이 파일의 글을 기존 글에 추가할까?';
-  if (!confirm(message)) return;
+async function restoreComment(commentId) {
   try {
-    const result = await adminRequest('import-posts', { mode, posts: state.parsedImportPosts });
+    const result = await adminRequest('restore-comment', { commentId });
     updateStateFromFeed(result.feed);
-    alert(`${result.count}개 글을 올렸어!`);
+    openHiddenCommentsModal();
   } catch (error) {
     alert(error.message);
   }
 }
 
-function downloadJson(filename, data) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+async function restorePost(postId) {
+  try {
+    const result = await adminRequest('restore-post', { postId });
+    updateStateFromFeed(result.feed);
+    openHiddenPostsModal();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+function openHiddenPostsModal() {
+  document.querySelector('.modal-overlay')?.remove();
+  const hidden = (state.hiddenPosts || [])
+    .slice()
+    .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
+
+  const { body } = createModal(`숨긴 글 · ${hidden.length}개`);
+  if (!hidden.length) {
+    const empty = document.createElement('p');
+    empty.className = 'help';
+    empty.textContent = '숨긴 글이 없어요.';
+    body.append(empty);
+    return;
+  }
+  for (const post of hidden) {
+    const item = document.createElement('div');
+    item.className = 'modal-comment';
+
+    const meta = document.createElement('div');
+    meta.className = 'modal-comment-meta';
+    meta.textContent = `[${post.category || '속마음'}] ${post.nickname || '익명'} · ${formatDate(post.createdAt)}`;
+
+    const text = document.createElement('p');
+    text.className = 'modal-comment-text';
+    text.textContent = post.content || '';
+
+    const restore = document.createElement('button');
+    restore.className = 'secondary-btn';
+    restore.type = 'button';
+    restore.textContent = '복원';
+    restore.style.marginTop = '10px';
+    restore.addEventListener('click', () => restorePost(post.id));
+
+    item.append(meta, text, restore);
+    body.append(item);
+  }
+}
+
+function openHiddenCommentsModal() {
+  document.querySelector('.modal-overlay')?.remove();
+  const hidden = (state.hiddenComments || [])
+    .slice()
+    .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
+
+  const { body } = createModal(`숨긴 댓글 · ${hidden.length}개`);
+  if (!hidden.length) {
+    const empty = document.createElement('p');
+    empty.className = 'help';
+    empty.textContent = '숨긴 댓글이 없어요.';
+    body.append(empty);
+    return;
+  }
+  for (const comment of hidden) {
+    const item = document.createElement('div');
+    item.className = 'modal-comment';
+
+    const meta = document.createElement('div');
+    meta.className = 'modal-comment-meta';
+    meta.textContent = `${comment.nickname || '익명'} · ${formatDate(comment.createdAt)}`;
+
+    const text = document.createElement('p');
+    text.className = 'modal-comment-text';
+    text.textContent = comment.content || '';
+
+    const onPost = document.createElement('p');
+    onPost.className = 'modal-comment-post';
+    onPost.textContent = `↳ 원글: ${postContentById(comment.postId).slice(0, 60)}`;
+
+    const restore = document.createElement('button');
+    restore.className = 'secondary-btn';
+    restore.type = 'button';
+    restore.textContent = '복원';
+    restore.style.marginTop = '10px';
+    restore.addEventListener('click', () => restoreComment(comment.id));
+
+    item.append(meta, text, onPost, restore);
+    body.append(item);
+  }
 }
 
 function bindEvents() {
   $('#adminToggle').addEventListener('click', () => {
     state.adminOpen = true;
     $('#adminPanel').classList.remove('hidden');
-    $('#adminPin').value = localStorage.getItem('daesupAdminPin') || '';
     updateAdminGate();
     if (adminPin()) loadAdminFeed({ silent: true });
     renderPosts();
@@ -438,17 +607,21 @@ function bindEvents() {
   $('#closeAdmin').addEventListener('click', () => {
     state.adminOpen = false;
     state.adminVerified = false;
+    state.adminPin = '';
     updateAdminGate();
     $('#adminPanel').classList.add('hidden');
     loadFeed();
   });
 
+  $('#writeBtn').addEventListener('click', openWriteModal);
   $('#refreshBtn').addEventListener('click', loadFeed);
   $('#searchInput').addEventListener('input', renderPosts);
-  $('#categoryFilter').addEventListener('change', renderPosts);
-  $('#adminPin').addEventListener('input', () => {
-    savePin();
+  $('#searchType').addEventListener('change', () => {
+    const type = $('#searchType').value;
+    $('#searchInput').placeholder = type === 'nickname' ? '닉네임 검색' : '내용 검색';
+    renderPosts();
   });
+  $('#categoryFilter').addEventListener('change', renderPosts);
   $('#adminPin').addEventListener('keydown', event => {
     if (event.key === 'Enter') loadAdminFeed();
   });
@@ -473,39 +646,6 @@ function bindEvents() {
     }
   });
 
-  $('#postForm').addEventListener('submit', async event => {
-    event.preventDefault();
-    try {
-      const result = await adminRequest('post', {
-        category: $('#newCategory').value || '속마음',
-        nickname: $('#newNickname').value || '익명',
-        content: $('#newContent').value
-      });
-      updateStateFromFeed(result.feed);
-      event.target.reset();
-      alert('글 등록 완료!');
-    } catch (error) {
-      alert(error.message);
-    }
-  });
-
-  $('#fileInput').addEventListener('change', async event => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      const posts = await readImportFile(file);
-      state.parsedImportPosts = posts;
-      $('#importPreview').textContent = `${posts.length}개 글을 읽었어. 이제 추가/교체 버튼을 눌러줘.`;
-    } catch (error) {
-      state.parsedImportPosts = [];
-      $('#importPreview').textContent = '파일을 읽지 못했어. 엑셀 첫 번째 줄 컬럼명을 확인해줘.';
-      console.error(error);
-    }
-  });
-
-  $('#appendImport').addEventListener('click', () => importPosts('append'));
-  $('#replaceImport').addEventListener('click', () => importPosts('replace'));
-
   const syncNowButton = $('#syncNow');
   if (syncNowButton) {
     syncNowButton.addEventListener('click', async () => {
@@ -522,37 +662,40 @@ function bindEvents() {
     });
   }
 
-  $('#exportData').addEventListener('click', async () => {
-    savePin();
-    try {
-      const response = await fetch(`/api/admin-export?pin=${encodeURIComponent(adminPin())}`, {
-        headers: { 'x-admin-pin': adminPin() }
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || '백업 실패');
-      downloadJson(`daesup-backup-${new Date().toISOString().slice(0, 10)}.json`, data);
-    } catch (error) {
-      alert(error.message);
-    }
-  });
+  const showHiddenPostsButton = $('#showHiddenPosts');
+  if (showHiddenPostsButton) {
+    showHiddenPostsButton.addEventListener('click', openHiddenPostsModal);
+  }
 
-  $('#resetSample').addEventListener('click', async () => {
-    if (!confirm('정말 샘플 데이터로 초기화할까? 기존 글/댓글이 사라져.')) return;
-    try {
-      const result = await adminRequest('reset-sample', {});
-      updateStateFromFeed(result.feed);
-      alert('초기화 완료!');
-    } catch (error) {
-      alert(error.message);
-    }
+  const showHiddenButton = $('#showHiddenComments');
+  if (showHiddenButton) {
+    showHiddenButton.addEventListener('click', openHiddenCommentsModal);
+  }
+
+  $('#themeToggle').addEventListener('click', () => {
+    const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('daesupTheme', next);
+    applyTheme(next);
   });
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = $('#themeToggle');
+  if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+
+function initTheme() {
+  const saved = localStorage.getItem('daesupTheme');
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  applyTheme(saved || (prefersDark ? 'dark' : 'light'));
 }
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(console.warn));
 }
 
+initTheme();
 bindEvents();
 updateAdminGate();
 loadFeed();
-setInterval(autoRefreshFeed, 60000);

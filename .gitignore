@@ -1,0 +1,8 @@
+# Local Netlify folder
+.netlify
+
+# Dependencies
+node_modules/
+
+# Netlify dev / Deno artifacts
+deno.lock

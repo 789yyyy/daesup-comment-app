@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>대나무숲 댓글앱</title>
+  <title>대나무숲</title>
   <meta name="theme-color" content="#2b7cff" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icons/icon.svg" />
@@ -14,7 +14,10 @@
     <header class="hero">
       <div class="hero-top">
         <div class="logo-badge">대숲</div>
-        <button id="adminToggle" class="ghost-btn" type="button">관리자</button>
+        <div class="hero-actions">
+          <button id="themeToggle" class="ghost-btn" type="button" aria-label="다크모드 전환">🌙</button>
+          <button id="adminToggle" class="ghost-btn" type="button">관리자</button>
+        </div>
       </div>
       <p class="eyebrow">WAVY anonymous board</p>
       <h1 id="appTitle">대나무숲</h1>
@@ -31,77 +34,69 @@
         <button id="closeAdmin" class="ghost-btn" type="button">닫기</button>
       </div>
 
-      <div class="admin-login-box">
-        <div id="pinWarning" class="warning hidden">현재 기본 PIN 1234로 열려 있어요. Netlify 환경변수 ADMIN_PIN을 꼭 바꿔줘!</div>
-
+      <div id="adminLoginBox" class="admin-login-box">
         <label class="field">
           <span>관리자 PIN</span>
           <input id="adminPin" type="password" placeholder="관리자 비밀번호 입력" autocomplete="current-password" />
         </label>
         <div class="row gap wrap admin-pin-actions">
           <button id="adminRefresh" class="secondary-btn" type="button">관리자 로그인</button>
-          <span id="adminLoginHelp" class="help">PIN이 맞아야 설정, 글 등록, 숨김 처리, 구글시트 반영 버튼이 열려.</span>
         </div>
       </div>
 
       <div id="adminTools" class="admin-grid hidden">
         <form id="settingsForm" class="mini-card">
-          <h3>앱 문구 바꾸기</h3>
-          <label class="field"><span>앱 제목</span><input id="settingTitle" type="text" /></label>
-          <label class="field"><span>앱 설명</span><input id="settingSubtitle" type="text" /></label>
+          <h3>문구 바꾸기</h3>
+          <label class="field"><span>제목</span><input id="settingTitle" type="text" /></label>
+          <label class="field"><span>설명</span><input id="settingSubtitle" type="text" /></label>
           <label class="field"><span>공지 문구</span><textarea id="settingNotice" rows="3"></textarea></label>
           <button class="primary-btn" type="submit">문구 저장</button>
         </form>
 
-        <form id="postForm" class="mini-card">
-          <h3>글 직접 등록</h3>
-          <label class="field"><span>카테고리</span><input id="newCategory" type="text" placeholder="건의 / 칭찬 / 속마음" /></label>
-          <label class="field"><span>닉네임</span><input id="newNickname" type="text" placeholder="익명" /></label>
-          <label class="field"><span>내용</span><textarea id="newContent" rows="5" placeholder="대숲 글 내용을 입력해줘"></textarea></label>
-          <button class="primary-btn" type="submit">글 등록</button>
-        </form>
-
         <div class="mini-card">
-          <h3>구글시트 자동연동</h3>
-          <p class="help">구글시트에 새 줄을 입력하면 앱 새로고침 때 자동으로 반영돼. 닉네임은 게시글에 공개돼.</p>
-          <p id="sheetSyncStatus" class="sync-status help">구글시트 연동 상태 확인 중...</p>
-          <button id="syncNow" class="secondary-btn" type="button">지금 구글시트 반영</button>
+          <h3>구글시트 연동</h3>
+          <p id="sheetSyncStatus" class="sync-status help"> 연동 상태 확인 중...</p>
+          <button id="syncNow" class="secondary-btn" type="button">구글시트 반영하기</button>
         </div>
 
         <div class="mini-card">
-          <h3>엑셀/CSV로 한 번에 올리기</h3>
-          <p class="help">자동연동을 쓰면 보통 이 기능은 안 써도 돼. 백업 파일을 직접 넣을 때만 사용해.</p>
-          <input id="fileInput" class="file-input" type="file" accept=".xlsx,.xls,.csv" />
-          <div class="row gap">
-            <button id="appendImport" class="primary-btn" type="button">기존 글에 추가</button>
-            <button id="replaceImport" class="danger-light-btn" type="button">전체 교체</button>
-          </div>
-          <p id="importPreview" class="help"></p>
+          <h3>숨긴 글</h3>
+          <p class="help">숨긴 글을 확인하고 다시 복원할 수 있어요.</p>
+          <button id="showHiddenPosts" class="secondary-btn" type="button">숨긴 글 보기</button>
         </div>
 
         <div class="mini-card">
-          <h3>관리 도구</h3>
-          <p class="help">데이터 백업은 JSON으로 받아둘 수 있어.</p>
-          <div class="row gap wrap">
-            <button id="exportData" class="secondary-btn" type="button">데이터 백업</button>
-            <button id="resetSample" class="danger-light-btn" type="button">샘플로 초기화</button>
-          </div>
+          <h3>숨긴 댓글</h3>
+          <p class="help">숨긴 댓글을 확인하고 다시 복원할 수 있어요.</p>
+          <button id="showHiddenComments" class="secondary-btn" type="button">숨긴 댓글 보기</button>
         </div>
       </div>
     </section>
 
     <section class="toolbar panel">
-      <label class="field search-field">
-        <span>검색</span>
-        <input id="searchInput" type="search" placeholder="내용 검색" />
-      </label>
-      <label class="field category-field">
-        <span>카테고리</span>
-        <select id="categoryFilter">
-          <option value="all">전체</option>
-        </select>
-      </label>
-      <button id="refreshBtn" class="secondary-btn" type="button">새로고침</button>
+      <div class="toolbar-actions">
+        <button id="writeBtn" class="primary-btn" type="button">글쓰기</button>
+        <button id="refreshBtn" class="secondary-btn" type="button">새로고침</button>
+      </div>
+      <div class="toolbar-filters">
+        <label class="field search-type-field">
+          <span>검색 기준</span>
+          <select id="searchType">
+            <option value="content">내용</option>
+            <option value="nickname">닉네임</option>
+          </select>
+        </label>
+        <label class="field search-field">
+          <span>검색</span>
+          <input id="searchInput" type="search" placeholder="내용 검색" />
+        </label>
+        <label class="field category-field">
+          <span>카테고리</span>
+          <select id="categoryFilter">
+            <option value="all">전체</option>
+          </select>
+        </label>
+      </div>
     </section>
 
     <main>
@@ -120,17 +115,17 @@
         <span class="date"></span>
       </div>
       <p class="post-content"></p>
+      <div class="comment-count"></div>
       <div class="comments"></div>
       <form class="comment-form">
-        <input name="nickname" type="text" placeholder="닉네임, 기본 익명" maxlength="20" />
-        <input name="content" type="text" placeholder="댓글을 입력해줘" maxlength="600" required />
+        <input name="nickname" type="text" placeholder="닉네임" maxlength="20" />
+        <input name="content" type="text" placeholder="내용" maxlength="600" required />
         <button type="submit">댓글</button>
       </form>
-      <button class="delete-post danger-text hidden" type="button">관리자: 글 숨김</button>
+      <button class="delete-post danger-text hidden" type="button">글 숨김</button>
     </article>
   </template>
 
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="/app.js" type="module"></script>
 </body>
 </html>
